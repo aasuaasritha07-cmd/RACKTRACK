@@ -12,7 +12,6 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as cheerio from "cheerio";
 import { spawn } from 'child_process';
-import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -176,70 +175,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return authHeader.replace("Bearer ", "");
   };
 
-  // Helper: Dispatch contact email(s) using Resend API if present, fallback to SMTP
-  async function dispatchContactEmails(contactData: any, recipients: string[]): Promise<boolean> {
-    const emailText = `Name: ${contactData.name}\nEmail: ${contactData.email}\n\n${contactData.message}`;
-    const emailHtml = `<p><strong>Name:</strong> ${contactData.name}</p><p><strong>Email:</strong> ${contactData.email}</p><pre>${contactData.message}</pre>`;
+  // Helper: Send email(s) via Resend only (HTTP) — returns true if there were send errors
+  async function sendViaResend(contactData: any, recipients: string[]): Promise<boolean> {
     const resendApiKey = process.env.RESEND_API_KEY;
-    const resendFrom = process.env.RESEND_FROM ?? process.env.GMAIL_FROM ?? process.env.GMAIL_USER ?? "no-reply@racktrack.ai";
-    let anySendErrors = false;
+    const fromAddress = process.env.RESEND_FROM ?? "contact@racktrack.ai";
+    if (!resendApiKey) {
+      console.error("Missing RESEND_API_KEY in environment");
+      return true; // treat as error
+    }
 
-    // transporter configuration for fallback
-    const transporter = nodemailer.createTransport({
-      service: process.env.GMAIL_SERVICE ?? "gmail",
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
-      secure: process.env.SMTP_SECURE === "true",
-      auth: { user: process.env.GMAIL_USER ?? "", pass: process.env.GMAIL_PASS ?? "" },
-      connectionTimeout: 15000,
-      socketTimeout: 15000,
-    });
+    const emailHtml = `<p><strong>Name:</strong> ${contactData.name}</p><p><strong>Email:</strong> ${contactData.email}</p><pre>${contactData.message.replace(/\n/g, "<br/>")}</pre>`;
+    const emailText = `Name: ${contactData.name}\nEmail: ${contactData.email}\n\n${contactData.message}`;
 
-    console.log("[Contact] will dispatch emails to:", recipients);
-
-    if (resendApiKey) {
-      for (const rcp of recipients) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 15000);
-          const resp = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}` },
-            body: JSON.stringify({ from: resendFrom, to: rcp, subject: `New Contact Form Message from ${contactData.name}`, html: emailHtml, text: emailText }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-          if (!resp.ok) {
-            anySendErrors = true;
-            const body = await resp.text().catch(() => "");
-            console.warn("[Resend] send failed for", rcp, resp.status, resp.statusText, body);
-          } else {
-            console.log("[Resend] sent to", rcp, resp.status);
-          }
-        } catch (err) {
-          anySendErrors = true;
-          console.error("[Resend] send error for", rcp, err);
-        }
-      }
-    } else {
+    let hasErrors = false;
+    for (const rcp of recipients) {
       try {
-        await new Promise<void>((resolve, reject) => transporter.verify((err) => (err ? reject(err) : resolve())));
-      } catch (verifyErr) {
-        console.warn("[SMTP] verify failed:", verifyErr);
-      }
-
-      for (const rcp of recipients) {
-        try {
-          await transporter.sendMail({ from: process.env.GMAIL_FROM ?? process.env.GMAIL_USER ?? "", to: rcp, subject: `New Contact Form Message from ${contactData.name}`, text: emailText });
-          console.log("[SMTP] sent to", rcp);
-        } catch (err) {
-          anySendErrors = true;
-          console.error("[SMTP] send error for", rcp, err);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const resp = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}` },
+          body: JSON.stringify({ from: fromAddress, to: rcp, subject: `New Contact Form Message from ${contactData.name}`, html: emailHtml, text: emailText }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+          hasErrors = true;
+          const body = await resp.text().catch(() => "");
+          console.error("[Resend] Failed to send to", rcp, resp.status, resp.statusText, body);
+        } else {
+          console.log("[Resend] Sent to", rcp, resp.status);
         }
+      } catch (err) {
+        hasErrors = true;
+        console.error("[Resend] Error sending to", rcp, err);
       }
     }
 
-    return anySendErrors;
+    return hasErrors;
   }
 
   app.post("/api/upload", upload.array("files", 20), async (req, res) => {
@@ -477,82 +450,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const emailHtml = `<p><strong>Name:</strong> ${contactData.name}</p><p><strong>Email:</strong> ${contactData.email}</p><pre>${contactData.message}</pre>`;
       const resendApiKey = process.env.RESEND_API_KEY;
       const resendFrom = process.env.RESEND_FROM ?? process.env.GMAIL_FROM ?? process.env.GMAIL_USER ?? "no-reply@racktrack.ai";
-      let anySendErrors = false;
+      // will be set by sendViaResend
 
       // Add some diagnostic logs (avoid leaking private info in production logs)
       console.log("[Contact] contact received from:", contactData.email, "name:", contactData.name);
 
-      // Prepare SMTP transporter (fallback)
-      const transporter = nodemailer.createTransport({
-        service: process.env.GMAIL_SERVICE ?? "gmail",
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
-        secure: process.env.SMTP_SECURE === "true",
-        auth: {
-          user: process.env.GMAIL_USER ?? "",
-          pass: process.env.GMAIL_PASS ?? "",
-        },
-        connectionTimeout: 15000,
-        socketTimeout: 15000,
-      });
-
-        // If Resend API key is present, use API-based sending to avoid SMTP network failures
-        if (resendApiKey) {
-          for (const rcp of recipients) {
-            try {
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 15000);
-              const resp = await fetch("https://api.resend.com/emails", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${resendApiKey}`,
-                },
-                body: JSON.stringify({
-                  from: resendFrom,
-                  to: rcp,
-                  subject: `New Contact Form Message from ${contactData.name}`,
-                  html: emailHtml,
-                  text: emailText,
-                }),
-                signal: controller.signal,
-              });
-              clearTimeout(timeout);
-              if (!resp.ok) {
-                anySendErrors = true;
-                const body = await resp.text().catch(() => "");
-                console.warn("[Resend] send failed for", rcp, resp.status, resp.statusText, body);
-              } else {
-                console.log("[Resend] sent to", rcp, resp.status);
-              }
-            } catch (err) {
-              anySendErrors = true;
-              console.error("[Resend] send error for", rcp, err);
-            }
-          }
-        } else {
-          // fallback to SMTP using nodemailer
-          try {
-            await new Promise<void>((resolve, reject) => transporter.verify((err) => (err ? reject(err) : resolve())));
-          } catch (verifyErr) {
-            console.warn("[SMTP] verify failed:", verifyErr);
-          }
-
-          for (const rcp of recipients) {
-            try {
-              await transporter.sendMail({
-                from: process.env.GMAIL_FROM ?? process.env.GMAIL_USER ?? "",
-                to: rcp,
-                subject: `New Contact Form Message from ${contactData.name}`,
-                text: emailText,
-              });
-              console.log("[SMTP] sent to", rcp);
-            } catch (err) {
-              anySendErrors = true;
-              console.error("[SMTP] send error:", err);
-            }
-          }
-        }
+      // Use Resend API only (no SMTP fallback) to avoid SMTP network issues
+      const anySendErrors = await sendViaResend(contactData, recipients);
 
       res.status(201).json({ success: true, message: "Message received and email sent", contact });
     } catch (error) {
@@ -579,7 +483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contact = await storage.createContact(sample as any);
       const recipientsEnv = process.env.CONTACT_RECS ?? "aasrithab@sprintpark.com,srikanthm@sprintpark.com";
       const recipients = recipientsEnv.split(",").map((r) => r.trim()).filter(Boolean);
-      const anySendErrors = await dispatchContactEmails(sample, recipients);
+      const anySendErrors = await sendViaResend(sample, recipients);
       res.json({ success: !anySendErrors, anySendErrors, contact });
     } catch (err) {
       console.error("/api/contact/test error:", err);
