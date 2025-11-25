@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "cross-env": "^10.1.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@neondatabase/serverless": "^0.10.4",
@@ -106,7 +107,7 @@
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
-    "cross-env": "^10.1.0",
+ 
     "drizzle-kit": "^0.31.4",
 
     "postcss": "^8.4.47",
