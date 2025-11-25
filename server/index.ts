@@ -2,18 +2,20 @@ import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 
-
 const app = express();
 
-// Configure CORS to allow the frontend origin(s). In production set CORS_ALLOWED
-// to a comma-separated list like: "https://racktrack.ai,https://www.racktrack.ai"
-const allowedOrigins = (process.env.CORS_ALLOWED || "https://racktrack.ai").split(",").map((o) => o.trim());
+/* -----------------------------
+   CORS CONFIGURATION
+------------------------------ */
+
+const allowedOrigins = (process.env.CORS_ALLOWED || "https://racktrack.ai")
+  .split(",")
+  .map((o) => o.trim());
+
 const corsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // if no origin (server -> server call, or CLI), allow it
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) return callback(null, true);
-    // origin not allowed
+    if (!origin) return callback(null, true); // allow server-to-server
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(null, false);
   },
   credentials: true,
@@ -24,10 +26,13 @@ const corsOptions = {
 // CORS middleware applied to all routes
 app.use(cors(corsOptions as any));
 
-// Ensure preflight requests are handled and respond with the CORS headers
+// Ensure preflight requests are handled
 app.options("*", cors(corsOptions as any));
 
-// lightweight logging for preflight requests so we can track CORS failures
+/* -----------------------------
+   LOGGING FOR CORS + REQUESTS
+------------------------------ */
+
 app.use((req, _res, next) => {
   if (req.method === "OPTIONS") {
     console.log("[CORS] Preflight from:", req.headers.origin, "->", req.path);
@@ -35,93 +40,99 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Forcefully add Access-Control-Allow-Origin header for explicitly allowed origins.
-// This mirrors what the `cors` middleware does but ensures headers are present in unusual proxy scenarios.
 app.use((req, res, next) => {
   try {
     const origin = (req.headers.origin as string | undefined) ?? null;
-    if (origin && allowedOrigins.indexOf(origin) !== -1) {
+    if (origin && allowedOrigins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", corsOptions.methods.join(","));
       res.setHeader("Access-Control-Allow-Headers", corsOptions.allowedHeaders.join(","));
     }
-  } catch (e) {
-    // swallow
+  } catch {
+    // ignore
   }
   next();
 });
+
+/* -----------------------------
+   PERFORMANCE + API LOGGING
+------------------------------ */
 
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+  let jsonResponse: any = undefined;
+
+  const originalJson = res.json.bind(res);
+  res.json = (body, ...args) => {
+    jsonResponse = body;
+    return originalJson(body, ...args);
   };
 
   res.on("finish", () => {
     const duration = Date.now() - start;
+
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+      let line = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (jsonResponse) line += ` :: ${JSON.stringify(jsonResponse)}`;
+      if (line.length > 80) line = line.substring(0, 79) + "…";
+      log(line);
     }
-    // Log CORS header presence for all requests to help debugging
+
     try {
-      const acAllowOrigin = res.getHeader("Access-Control-Allow-Origin");
-      if (acAllowOrigin) {
-        log(`[CORS] Response header Access-Control-Allow-Origin: ${acAllowOrigin} for ${req.method} ${path}`);
+      const allowOrigin = res.getHeader("Access-Control-Allow-Origin");
+      if (allowOrigin) {
+        log(`[CORS] Access-Control-Allow-Origin: ${allowOrigin} for ${req.method} ${path}`);
       } else if (path.startsWith("/api")) {
-        log(`[CORS] No Access-Control-Allow-Origin header for ${req.method} ${path}, origin: ${req.headers.origin}`);
+        log(`[CORS] No Access-Control-Allow-Origin for ${req.method} ${path}, origin: ${req.headers.origin}`);
       }
-    } catch (e) {
-      // ignore logging error
+    } catch {
+      // ignore
     }
   });
 
   next();
 });
 
+/* -----------------------------
+   REGISTER API ROUTES
+------------------------------ */
+
 (async () => {
   const server = await registerRoutes(app);
 
+  /* -----------------------------
+     ERROR HANDLER (always last)
+  ------------------------------ */
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
     res.status(status).json({ message });
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+  /* -----------------------------
+     NO FRONTEND HERE
+     (Frontend deployed on cPanel)
+  ------------------------------ */
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-  port,
-  host: "0.0.0.0",
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+  const port = parseInt(process.env.PORT || "5000", 10);
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+    },
+    () => {
+      log(`Backend running on port ${port}`);
+    }
+  );
 })();
+
+/* -----------------------------
+   SIMPLE LOGGER
+------------------------------ */
+function log(message: string) {
+  console.log(message);
+}
