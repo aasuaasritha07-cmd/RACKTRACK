@@ -15,6 +15,11 @@ import { spawn } from 'child_process';
 import dotenv from "dotenv";
 dotenv.config();
 
+// Startup check: warn if important env vars are missing
+if (!process.env.RESEND_API_KEY) {
+  console.warn("[Startup] RESEND_API_KEY missing in environment — contact emails will not be sent. Set RESEND_API_KEY in Render or local .env.");
+}
+
 // ESM-friendly __dirname/__filename
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -458,7 +463,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use Resend API only (no SMTP fallback) to avoid SMTP network issues
       const anySendErrors = await sendViaResend(contactData, recipients);
 
-      res.status(201).json({ success: true, message: "Message received and email sent", contact });
+      // Return the send status to the caller for diagnostics
+      res.status(anySendErrors ? 202 : 201).json({ success: !anySendErrors, emailSent: !anySendErrors, anySendErrors, contact });
     } catch (error) {
       console.error("Contact form error:", error);
       res.status(400).json({ success: false, message: "Failed to submit contact form" });
@@ -484,7 +490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const recipientsEnv = process.env.CONTACT_RECS ?? "aasrithab@sprintpark.com,srikanthm@sprintpark.com";
       const recipients = recipientsEnv.split(",").map((r) => r.trim()).filter(Boolean);
       const anySendErrors = await sendViaResend(sample, recipients);
-      res.json({ success: !anySendErrors, anySendErrors, contact });
+      res.json({ success: !anySendErrors, emailSent: !anySendErrors, anySendErrors, contact });
     } catch (err) {
       console.error("/api/contact/test error:", err);
       res.status(500).json({ success: false, message: "Test send failed" });
