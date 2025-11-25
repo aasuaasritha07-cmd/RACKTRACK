@@ -18,6 +18,8 @@ dotenv.config();
 // Startup check: warn if important env vars are missing
 if (!process.env.RESEND_API_KEY) {
   console.warn("[Startup] RESEND_API_KEY missing in environment — contact emails will not be sent. Set RESEND_API_KEY in Render or local .env.");
+} else {
+  console.log("[Startup] RESEND_API_KEY present; Resend email sending enabled (value hidden)");
 }
 
 // ESM-friendly __dirname/__filename
