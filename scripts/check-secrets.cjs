@@ -1,21 +1,15 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-// __dirname replacement in ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CommonJS version for prebuild
+const fs = require("fs");
+const path = require("path");
 
 function scanFile(filePath) {
   if (!fs.existsSync(filePath)) return false;
   const content = fs.readFileSync(filePath, "utf8");
 
-  // Forbidden secrets (server-only)
   const forbidden = [
     "RESEND_API_KEY",
     "GMAIL_APP_PASSWORD",
-    "SMTP_PASSWORD",
-    "GMAIL_APP_PASSWORD"
+    "SMTP_PASSWORD"
   ];
 
   return forbidden.some(k => content.includes(k));
