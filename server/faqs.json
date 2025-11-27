@@ -1,0 +1,42 @@
+[
+  {
+    "question": "What is RackTrack?",
+    "answer": "RackTrack is an AI-powered data center rack monitoring platform that provides real-time visibility, asset tracking, and performance insights for data center operations."
+  },
+  {
+    "question": "What are the features of RackTrack?",
+    "answer": "RackTrack offers rack-level monitoring, asset tracking, AI-driven alerts, environment sensing, power monitoring, utilization insights, and automated reporting."
+  },
+  {
+    "question": "How does RackTrack help data centers?",
+    "answer": "RackTrack improves data center efficiency by monitoring racks, tracking assets automatically, reducing downtime, increasing security, and optimizing resource usage."
+  },
+  {
+    "question": "What problem does RackTrack solve?",
+    "answer": "RackTrack solves common data center issues such as mismanaged assets, lack of visibility, manual tracking errors, cooling issues, and unexpected downtime."
+  },
+  {
+    "question": "What is rack management?",
+    "answer": "Rack management involves organizing, monitoring, and maintaining data center racks to ensure efficient equipment placement, performance, and safety."
+  },
+  {
+    "question": "How does RackTrack track assets?",
+    "answer": "RackTrack uses AI vision-based identification and IoT sensors to automatically detect, track, and update the location and health of assets inside racks."
+  },
+  {
+    "question": "Does RackTrack reduce downtime?",
+    "answer": "Yes, RackTrack reduces downtime by providing early alerts, detecting anomalies, monitoring environment conditions, and offering real-time warnings."
+  },
+  {
+    "question": "Can RackTrack monitor rack temperature?",
+    "answer": "Yes, RackTrack monitors temperature, humidity, power usage, and other environmental factors to keep racks safe and efficient."
+  },
+  {
+    "question": "Is RackTrack useful for large data centers?",
+    "answer": "Absolutely. RackTrack is designed to scale and can track thousands of assets across multiple data center rooms and regions."
+  },
+  {
+    "question": "Is AI used in RackTrack?",
+    "answer": "Yes, RackTrack uses AI for asset recognition, anomaly detection, predictive monitoring, and intelligent alerts."
+  }
+]
