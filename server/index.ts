@@ -2,6 +2,9 @@ import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 
+// Global logger used everywhere in server
+const log = (...args: any[]) => console.log("[server]", ...args);
+
 const app = express();
 
 /* -----------------------------
